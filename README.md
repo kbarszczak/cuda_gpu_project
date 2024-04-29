@@ -1,2 +1,2 @@
-# cuda_gpu_project
+# Cuda GPU project
 The project for gpu programming classes
