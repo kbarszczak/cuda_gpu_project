@@ -40,7 +40,7 @@ private:
         delete[] states;
     }
 
-    void requireWithinBound(int x, int y) {
+    void requireWithinBound(int x, int y) const {
         if (x < 0 | x >= width) throw invalid_argument("x it out of bound");
         if (y < 0 | y >= width) throw invalid_argument("y it out of bound");
     }
@@ -93,7 +93,55 @@ public:
         return height;
     }
 
+    friend std::ostream &operator<<(std::ostream &out, const Board &board) {
+        for (int i = 0; i < board.height; ++i) {
+            for (int j = 0; j < board.width; ++j) {
+                switch (board.states[i][j]) {
+                    case Alive:
+                        out << "x";
+                        break;
+                    case Dead:
+                        out << " ";
+                        break;
+                }
+            }
+            out << "\n";
+        }
+        return out;
+    }
+
 };
+
+class StateProcessor {
+
+public:
+
+    virtual Board &next(Board &board) const = 0;
+
+};
+
+class CPUStateProcessor : public StateProcessor {
+
+public:
+
+    Board &next(Board &board) const override {
+        // todo: write CPU processor
+        throw exception();
+    }
+
+};
+
+class GPUStateProcessor : public StateProcessor {
+
+public:
+
+    Board &next(Board &board) const override {
+        // todo: write GPU processor
+        throw exception();
+    }
+
+};
+
 
 int main() {
     cout << "Hello, World!" << endl;
