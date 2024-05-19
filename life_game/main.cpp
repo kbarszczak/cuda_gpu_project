@@ -80,7 +80,7 @@ public:
         states[y][x] = state;
     }
 
-    const State &get(int x, int y) {
+    const State &get(int x, int y) const {
         requireWithinBound(x, y);
         return states[y][x];
     }
@@ -94,15 +94,19 @@ public:
     }
 
     friend std::ostream &operator<<(std::ostream &out, const Board &board) {
-        for (int i = 0; i < board.height; ++i) {
-            for (int j = 0; j < board.width; ++j) {
-                switch (board.states[i][j]) {
-                    case Alive:
-                        out << "x";
-                        break;
-                    case Dead:
-                        out << " ";
-                        break;
+        for (int i = -1; i <= board.height; ++i) {
+            for (int j = -1; j <= board.width; ++j) {
+                if (j < 0 || j >= board.width) out << "|";
+                else if (i < 0 || i >= board.height) out << "-";
+                else {
+                    switch (board.states[i][j]) {
+                        case Alive:
+                            out << "x";
+                            break;
+                        case Dead:
+                            out << " ";
+                            break;
+                    }
                 }
             }
             out << "\n";
@@ -116,7 +120,7 @@ class StateProcessor {
 
 public:
 
-    virtual Board &next(Board &board) const = 0;
+    [[nodiscard]] virtual Board *next(const Board *board) const = 0;
 
 };
 
@@ -124,9 +128,9 @@ class CPUStateProcessor : public StateProcessor {
 
 public:
 
-    Board &next(Board &board) const override {
+    [[nodiscard]] Board *next(const Board *board) const override {
         // todo: write CPU processor
-        throw exception();
+        return new Board(*board);
     }
 
 };
@@ -135,15 +139,59 @@ class GPUStateProcessor : public StateProcessor {
 
 public:
 
-    Board &next(Board &board) const override {
+    [[nodiscard]] Board *next(const Board *board) const override {
         // todo: write GPU processor
-        throw exception();
+        return new Board(*board);
     }
 
 };
 
-
 int main() {
-    cout << "Hello, World!" << endl;
+
+    string buffer;
+    int gameLength = 1000;
+    auto *initialBoard = new Board(10, 10);
+    auto *processor = new CPUStateProcessor();
+
+    // construct board
+    while (true) {
+        cout << "Do you want to add alive state? y|n: ";
+        cin >> buffer;
+
+        if (buffer == "y") {
+            int x, y;
+            cout << "x: ";
+            cin >> x;
+            cout << "y: ";
+            cin >> y;
+
+            try {
+                initialBoard->set(State::Alive, x, y);
+            } catch (const invalid_argument &exception) {
+                cerr << "Cannot set alive state because of [" << exception.what() << "]\n";
+            }
+        } else {
+            cout << "Starting the game ...\n";
+            break;
+        }
+    }
+
+    // main game loop
+    Board *currentState = nullptr;
+    Board *previousState = new Board(*initialBoard);
+
+    for (int i = 0; i < gameLength; ++i) {
+        currentState = processor->next(previousState);
+        cout << *currentState;
+
+        delete previousState;
+        previousState = currentState;
+    }
+
+    delete currentState;
+    delete previousState;
+    delete initialBoard;
+    delete processor;
+
     return 0;
 }
