@@ -80,7 +80,7 @@ public:
         states[y][x] = state;
     }
 
-    const State &get(int x, int y) const {
+    [[nodiscard]] const State &get(int x, int y) const {
         requireWithinBound(x, y);
         return states[y][x];
     }
