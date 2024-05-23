@@ -126,11 +126,43 @@ public:
 
 class CPUStateProcessor : public StateProcessor {
 
+private:
+
+    [[nodiscard]] static int countNeighbours(const Board *board, int x, int y) {
+        int result = 0;
+        for (int i = -1; i < 2; ++i) {
+            for (int j = -1; j < 2; ++j) {
+                if (i == 0 && j == 0) continue;
+
+                int _x = x + j, _y = y + i;
+                if (_x < 0 || _y < 0 || _x >= board->getWidth() || _y >= board->getHeight()) continue;
+
+                if (board->get(_x, _y) == State::Alive) ++result;
+            }
+        }
+        return result;
+    }
+
 public:
 
     [[nodiscard]] Board *next(const Board *board) const override {
-        // todo: write CPU processor
-        return new Board(*board);
+        auto *result = new Board(*board);
+        for (int i = 0; i < board->getHeight(); ++i) {
+            for (int j = 0; j < board->getWidth(); ++j) {
+                int neighbours = countNeighbours(board, j, i);
+
+                switch (board->get(j, i)) {
+                    case Alive:
+                        if (neighbours <= 1 || neighbours >= 4) result->set(State::Dead, j, i);
+                        break;
+                    case Dead:
+                        if (neighbours == 3) result->set(State::Alive, j, i);
+                        break;
+                }
+            }
+        }
+
+        return result;
     }
 
 };
@@ -177,8 +209,7 @@ int main() {
     }
 
     // main game loop
-    Board *currentState = nullptr;
-    Board *previousState = new Board(*initialBoard);
+    Board *previousState = new Board(*initialBoard), *currentState;
 
     for (int i = 0; i < gameLength; ++i) {
         currentState = processor->next(previousState);
@@ -188,7 +219,6 @@ int main() {
         previousState = currentState;
     }
 
-    delete currentState;
     delete previousState;
     delete initialBoard;
     delete processor;
