@@ -192,7 +192,7 @@ __global__ void updateBoardKernel(const State *current, State *next, int width, 
 
     if (x >= width || y >= height) return;
 
-    int neighbors = 0;
+    int neighbours = 0;
     for (int i = -1; i <= 1; ++i) {
         for (int j = -1; j <= 1; ++j) {
             if (i == 0 && j == 0) continue;
@@ -202,25 +202,23 @@ __global__ void updateBoardKernel(const State *current, State *next, int width, 
 
             if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
                 if (current[ny * width + nx] == Alive) {
-                    ++neighbors;
+                    ++neighbours;
                 }
             }
         }
     }
 
     unsigned int idx = y * width + x;
-    if (current[idx] == Alive) {
-        if (neighbors < 2 || neighbors > 3) {
-            next[idx] = Dead;
-        } else {
-            next[idx] = Alive;
-        }
-    } else {
-        if (neighbors == 3) {
-            next[idx] = Alive;
-        } else {
-            next[idx] = Dead;
-        }
+
+    switch (current[idx]) {
+        case Alive:
+            if (neighbours <= 1 || neighbours >= 4) next[idx] = Dead;
+            else next[idx] = Alive;
+            break;
+        case Dead:
+            if (neighbours == 3)  next[idx] = Alive;
+            else next[idx] = Dead;
+            break;
     }
 }
 
@@ -268,9 +266,9 @@ public:
 int main() {
 
     string buffer;
-    int gameLength = 1000;
+    int gameLength = 20;
     StateProcessor *processor;
-    auto *initialBoard = new Board(10, 10);
+    auto *initialBoard = new Board(16, 16);
 
     cout << "Do you want to process it on GPU? y|n";
     cin >> buffer;
