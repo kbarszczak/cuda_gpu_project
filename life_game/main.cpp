@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cuda_runtime.h>
 
 using namespace std;
 
@@ -169,11 +170,83 @@ public:
 
 class GPUStateProcessor : public StateProcessor {
 
+private:
+
+    static __device__ int countNeighbours(const Board *board, int x, int y) {
+        int result = 0;
+        for (int i = -1; i <= 1; ++i) {
+            for (int j = -1; j <= 1; ++j) {
+                if (i == 0 && j == 0) continue;
+
+                int _x = x + j, _y = y + i;
+                if (_x < 0 || _y < 0 || _x >= board->getWidth() || _y >= board->getHeight()) continue;
+
+                if (board->get(_x, _y) == State::Alive) ++result;
+            }
+        }
+        return result;
+    }
+
+    static __global__ void processBoard(const Board *input, Board *output) {
+        int x = blockIdx.x * blockDim.x + threadIdx.x;
+        int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+        if (x < input->getWidth() && y < input->getHeight()) {
+            int neighbours = countNeighbours(input, x, y);
+
+            switch (input->get(x, y)) {
+                case State::Alive:
+                    if (neighbours <= 1 || neighbours >= 4) {
+                        output->set(State::Dead, x, y);
+                    } else {
+                        output->set(State::Alive, x, y);
+                    }
+                    break;
+                case State::Dead:
+                    if (neighbours == 3) {
+                        output->set(State::Alive, x, y);
+                    } else {
+                        output->set(State::Dead, x, y);
+                    }
+                    break;
+            }
+        }
+    }
+
 public:
 
     [[nodiscard]] Board *next(const Board *board) const override {
-        // todo: write GPU processor
-        return new Board(*board);
+        Board *d_input, *d_output;
+
+        size_t size = board->getWidth() * board->getHeight() * sizeof(State);
+
+        // Allocate device memory
+        cudaMalloc(&d_input, sizeof(Board));
+        cudaMalloc(&d_output, sizeof(Board));
+
+        // Copy board to device memory
+        cudaMemcpy(d_input, board, sizeof(Board), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_output, board, sizeof(Board), cudaMemcpyHostToDevice);
+
+        // Set up grid and block dimensions
+        dim3 threadsPerBlock(16, 16);
+        dim3 numBlocks((board->getWidth() + threadsPerBlock.x - 1) / threadsPerBlock.x,
+                       (board->getHeight() + threadsPerBlock.y - 1) / threadsPerBlock.y);
+
+        // Launch kernel
+        processBoard<<<numBlocks, threadsPerBlock>>>(d_input, d_output);
+
+        // Allocate result board on host
+        Board *result = new Board(*board);
+
+        // Copy result from device to host
+        cudaMemcpy(result, d_output, sizeof(Board), cudaMemcpyDeviceToHost);
+
+        // Free device memory
+        cudaFree(d_input);
+        cudaFree(d_output);
+
+        return result;
     }
 
 };
