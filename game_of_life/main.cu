@@ -115,6 +115,23 @@ public:
         return out;
     }
 
+
+    void toArray(State *array) const {
+        for (int i = 0; i < height; ++i) {
+            for (int j = 0; j < width; ++j) {
+                array[i * width + j] = states[i][j];
+            }
+        }
+    }
+
+    void fromArray(const State *array) {
+        for (int i = 0; i < height; ++i) {
+            for (int j = 0; j < width; ++j) {
+                states[i][j] = array[i * width + j];
+            }
+        }
+    }
+
 };
 
 class StateProcessor {
@@ -122,6 +139,7 @@ class StateProcessor {
 public:
 
     [[nodiscard]] virtual Board *next(const Board *board) const = 0;
+    // virtual ~StateProcessor() = 0; // doesn't work with the nvcc compiler
 
 };
 
@@ -168,86 +186,81 @@ public:
 
 };
 
+__global__ void updateBoardKernel(const State *current, State *next, int width, int height) {
+    unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= width || y >= height) return;
+
+    int neighbors = 0;
+    for (int i = -1; i <= 1; ++i) {
+        for (int j = -1; j <= 1; ++j) {
+            if (i == 0 && j == 0) continue;
+
+            unsigned int nx = x + j;
+            unsigned int ny = y + i;
+
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                if (current[ny * width + nx] == Alive) {
+                    ++neighbors;
+                }
+            }
+        }
+    }
+
+    unsigned int idx = y * width + x;
+    if (current[idx] == Alive) {
+        if (neighbors < 2 || neighbors > 3) {
+            next[idx] = Dead;
+        } else {
+            next[idx] = Alive;
+        }
+    } else {
+        if (neighbors == 3) {
+            next[idx] = Alive;
+        } else {
+            next[idx] = Dead;
+        }
+    }
+}
+
 class GPUStateProcessor : public StateProcessor {
-
-private:
-
-//    static __device__ int countNeighbours(const Board *board, int x, int y) {
-//        int result = 0;
-//        for (int i = -1; i <= 1; ++i) {
-//            for (int j = -1; j <= 1; ++j) {
-//                if (i == 0 && j == 0) continue;
-//
-//                int _x = x + j, _y = y + i;
-//                if (_x < 0 || _y < 0 || _x >= board->getWidth() || _y >= board->getHeight()) continue;
-//
-//                if (board->get(_x, _y) == State::Alive) ++result;
-//            }
-//        }
-//        return result;
-//    }
-//
-//    static __global__ void processBoard(const Board *input, Board *output) {
-//        int x = blockIdx.x * blockDim.x + threadIdx.x;
-//        int y = blockIdx.y * blockDim.y + threadIdx.y;
-//
-//        if (x < input->getWidth() && y < input->getHeight()) {
-//            int neighbours = countNeighbours(input, x, y);
-//
-//            switch (input->get(x, y)) {
-//                case State::Alive:
-//                    if (neighbours <= 1 || neighbours >= 4) {
-//                        output->set(State::Dead, x, y);
-//                    } else {
-//                        output->set(State::Alive, x, y);
-//                    }
-//                    break;
-//                case State::Dead:
-//                    if (neighbours == 3) {
-//                        output->set(State::Alive, x, y);
-//                    } else {
-//                        output->set(State::Dead, x, y);
-//                    }
-//                    break;
-//            }
-//        }
-//    }
 
 public:
 
     [[nodiscard]] Board *next(const Board *board) const override {
-//        Board *d_input, *d_output;
-//
-//        size_t size = board->getWidth() * board->getHeight() * sizeof(State);
-//
-//        // Allocate device memory
-//        cudaMalloc(&d_input, sizeof(Board));
-//        cudaMalloc(&d_output, sizeof(Board));
-//
-//        // Copy board to device memory
-//        cudaMemcpy(d_input, board, sizeof(Board), cudaMemcpyHostToDevice);
-//        cudaMemcpy(d_output, board, sizeof(Board), cudaMemcpyHostToDevice);
-//
-//        // Set up grid and block dimensions
-//        dim3 threadsPerBlock(16, 16);
-//        dim3 numBlocks((board->getWidth() + threadsPerBlock.x - 1) / threadsPerBlock.x,
-//                       (board->getHeight() + threadsPerBlock.y - 1) / threadsPerBlock.y);
-//
-//        // Launch kernel
-//        processBoard<<<numBlocks, threadsPerBlock>>>(d_input, d_output);
-//
-//        // Allocate result board on host
-//        Board *result = new Board(*board);
-//
-//        // Copy result from device to host
-//        cudaMemcpy(result, d_output, sizeof(Board), cudaMemcpyDeviceToHost);
-//
-//        // Free device memory
-//        cudaFree(d_input);
-//        cudaFree(d_output);
-//
-//        return result;
-        return nullptr;
+        int width = board->getWidth();
+        int height = board->getHeight();
+        unsigned int size = width * height * sizeof(State);
+
+        State *d_current, *d_next;
+        cudaMalloc(&d_current, size);
+        cudaMalloc(&d_next, size);
+
+        auto *h_current = new State[width * height];
+        board->toArray(h_current);
+
+        cudaMemcpy(d_current, h_current, size, cudaMemcpyHostToDevice);
+
+        dim3 threadsPerBlock(16, 16);
+        dim3 numBlocks((width + threadsPerBlock.x - 1) / threadsPerBlock.x,
+                       (height + threadsPerBlock.y - 1) / threadsPerBlock.y);
+
+        updateBoardKernel<<<numBlocks, threadsPerBlock>>>(d_current, d_next, width, height);
+        cudaDeviceSynchronize();
+
+        auto *h_next = new State[width * height];
+        cudaMemcpy(h_next, d_next, size, cudaMemcpyDeviceToHost);
+
+        auto *nextBoard = new Board(width, height);
+        nextBoard->fromArray(h_next);
+
+        cudaFree(d_current);
+        cudaFree(d_next);
+        delete[] h_current;
+        delete[] h_next;
+
+        return nextBoard;
     }
 
 };
@@ -256,8 +269,19 @@ int main() {
 
     string buffer;
     int gameLength = 1000;
+    StateProcessor *processor;
     auto *initialBoard = new Board(10, 10);
-    auto *processor = new CPUStateProcessor();
+
+    cout << "Do you want to process it on GPU? y|n";
+    cin >> buffer;
+
+    if (buffer == "y") {
+        processor = new GPUStateProcessor();
+        cout << "Processing on GPU.\n";
+    } else {
+        processor = new CPUStateProcessor();
+        cout << "Processing on CPU.\n";
+    }
 
     // construct board
     while (true) {
